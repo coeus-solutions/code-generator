@@ -69,14 +69,26 @@ export async function generateCodeFromPrompt(
           
           const chunk: CodeChunkResponse = JSON.parse(jsonStr);
           
+          // Extract filename from the first line comment if it exists
+          let filename = chunk.file;
+          const firstLine = chunk.code.split('\n')[0];
+          if (firstLine && firstLine.startsWith('//')) {
+            filename = firstLine.slice(2).trim();
+          } else if (chunk.file === 'typescript') {
+            // Skip if we can't determine the filename
+            continue;
+          }
+
           // Update or create file content
-          const currentContent = files.get(chunk.file) || '';
-          files.set(chunk.file, currentContent + chunk.code);
+          const currentContent = files.get(filename) || '';
+          // Remove the filename comment from the content
+          const content = chunk.code.split('\n').slice(1).join('\n');
+          files.set(filename, currentContent + content);
 
           // Convert Map to array of files for the callback
           const currentFiles: GeneratedFile[] = Array.from(files.entries()).map(
             ([filename, content]) => ({
-              filename,
+              filename: filename.replace(/^\//, ''), // Remove leading slash if present
               content
             })
           );
@@ -95,7 +107,7 @@ export async function generateCodeFromPrompt(
   // Convert final Map to array of files for the response
   const finalFiles: GeneratedFile[] = Array.from(files.entries()).map(
     ([filename, content]) => ({
-      filename,
+      filename: filename.replace(/^\//, ''), // Remove leading slash if present
       content
     })
   );
