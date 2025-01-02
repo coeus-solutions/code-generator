@@ -56,18 +56,17 @@ export function Preview({
   // Update preview content when files change
   useEffect(() => {
     if (activeTab === 'preview' && files.length > 0) {
-      const htmlFile = files.find(f => f.filename.endsWith('.html')) || {
-        content: `
+      const baseHtml = `
 <!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-router-dom@6/dist/umd/react-router-dom.development.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <title>Preview</title>
+    <title>Code Generator</title>
     <style>
       body {
         margin: 0;
@@ -81,44 +80,158 @@ export function Preview({
   </head>
   <body>
     <div id="root"></div>
-  </body>
-</html>`
+    <script>
+      // Initialize global objects
+      window.components = {};
+      window.React = React;
+      window.ReactRouterDOM = ReactRouterDOM;
+
+      // Create a simple createElement wrapper
+      const e = React.createElement;
+      
+      // Setup React Router components
+      const {
+        BrowserRouter,
+        Routes,
+        Route,
+        Link
+      } = ReactRouterDOM;
+
+      // Error handler
+      window.onerror = function(msg, url, line, col, error) {
+        console.error('Error:', msg, 'Line:', line);
+        document.getElementById('root').innerHTML = '<div style="color: red; padding: 1rem;">Error: ' + msg + '</div>';
+        return false;
       };
 
-      // Combine all TypeScript/JavaScript files into a single script
-      const allScripts = files
-        .filter(f => f.filename.endsWith('.tsx') || f.filename.endsWith('.ts'))
-        .map(f => f.content)
-        .join('\n\n');
+      // Component registration helper
+      window.registerComponent = function(name, component) {
+        console.log('Registering component:', name);
+        window.components[name] = component;
+        return component;
+      };
+    </script>
+  </body>
+</html>`;
 
-      // Add all CSS files
-      const styleTags = files
-        .filter(f => f.filename.endsWith('.css'))
-        .map(f => `
-          <style>
-            ${f.content}
-          </style>
-        `)
+      // Convert TypeScript/TSX to plain JavaScript
+      const scripts = files
+        .filter(f => f.filename.endsWith('.tsx') || f.filename.endsWith('.ts'))
+        .map((file, index) => {
+          console.log('Processing file:', file.filename);
+          
+          // Simple JSX-like transformation
+          let content = file.content
+            // Remove type annotations
+            .replace(/:\s*[A-Za-z<>[\]|&{}]+/g, '')
+            // Remove interface declarations
+            .replace(/interface\s+\w+\s*\{[^}]*\}/g, '')
+            // Remove type declarations
+            .replace(/type\s+\w+\s*=\s*[^;]+;/g, '')
+            // Convert imports
+            .replace(/import\s+{\s*([^}]+)}\s+from\s+['"]react-router-dom['"]/g, 'const { $1 } = ReactRouterDOM')
+            .replace(/import\s+{\s*([^}]+)}\s+from\s+['"]react['"]/g, 'const { $1 } = React')
+            .replace(/import\s+React\s+from\s+['"]react['"]/g, '// React is global')
+            .replace(/import\s+(\w+)\s+from\s+['"]\.\/?([^'"]+)['"]/g, 'const $1 = window.components["$2"]')
+            // Convert exports
+            .replace(/export\s+default\s+function\s+(\w+)/g, 'window.registerComponent("$1", function $1')
+            .replace(/export\s+default\s+class\s+(\w+)/g, 'window.registerComponent("$1", class $1')
+            .replace(/export\s+default\s+const\s+(\w+)\s*=/g, 'window.registerComponent("$1",')
+            .replace(/export\s+const\s+(\w+)\s*=/g, 'window.registerComponent("$1",')
+            .replace(/export\s+function\s+(\w+)/g, 'window.registerComponent("$1", function $1')
+            .replace(/export\s+default\s+(\w+)/g, 'window.registerComponent("$1", $1)')
+            // Transform JSX-like syntax to React.createElement calls
+            .replace(/</g, 'e(')
+            .replace(/>/g, ')')
+            // Handle self-closing tags
+            .replace(/e\((\w+)([^)]*?)\/\)/g, 'e($1$2null)')
+            // Transform props
+            .replace(/(\w+)=/g, '$1:')
+            // Handle string props
+            .replace(/:"([^"]+)"/g, ':"$1"')
+            // Handle expression props
+            .replace(/:\{([^}]+)\}/g, ':$1');
+
+          const fileName = file.filename.replace(/\.[^/.]+$/, "").split('/').pop();
+          
+          return `
+            <script>
+              try {
+                (function() {
+                  console.log('Processing ${fileName}');
+                  ${content}
+                  console.log('Components after processing ${fileName}:', Object.keys(window.components));
+                })();
+              } catch (error) {
+                console.error('Error in ${fileName}:', error);
+              }
+            </script>
+          `;
+        })
         .join('\n');
 
-      const fullHtml = htmlFile.content.replace(
+      // Add initialization script
+      const initScript = `
+        <script>
+          try {
+            // Wait for all components to be registered
+            setTimeout(() => {
+              console.log('Initializing app with components:', Object.keys(window.components));
+              
+              // Find the App component
+              const App = window.components['App'];
+              console.log('Found App component:', App);
+
+              if (typeof App !== 'function') {
+                throw new Error('App component not found or not a valid React component');
+              }
+
+              // Initialize the app
+              const container = document.getElementById('root');
+              const root = ReactDOM.createRoot(container);
+              root.render(e(BrowserRouter, null, e(App)));
+              console.log('App rendered successfully');
+            }, 100);
+          } catch (error) {
+            console.error('Error initializing app:', error);
+            document.getElementById('root').innerHTML = 
+              '<div style="color: red; padding: 1rem;">Error: ' + error.message + '</div>';
+          }
+        </script>
+      `;
+
+      // Add CSS files
+      const styles = files
+        .filter(f => f.filename.endsWith('.css'))
+        .map(f => `<style>${f.content}</style>`)
+        .join('\n');
+
+      // Update the title in the generated index.html file
+      const updatedFiles = files.map(file => {
+        if (file.filename === 'public/index.html') {
+          return {
+            ...file,
+            content: file.content.replace(
+              /<title>.*?<\/title>/,
+              '<title>Code Generator</title>'
+            )
+          };
+        }
+        return file;
+      });
+
+      // Update the files prop with the new content
+      files = updatedFiles;
+
+      const fullHtml = baseHtml.replace(
         '</body>',
-        `${styleTags}
-         <script type="text/babel">
-           ${allScripts}
-           
-           // Initialize the app
-           const root = ReactDOM.createRoot(document.getElementById('root'));
-           root.render(
-             React.createElement(React.StrictMode, null,
-               React.createElement(App)
-             )
-           );
-         </script>
-         </body>`
+        `${styles}\n${scripts}\n${initScript}\n</body>`
       );
 
       setPreviewContent(fullHtml);
+      
+      // Debug the content being set
+      console.log('Files being processed:', files.map(f => f.filename));
     }
   }, [files, activeTab]);
 
@@ -131,6 +244,11 @@ export function Preview({
         doc.open();
         doc.write(previewContent);
         doc.close();
+
+        // Add message listener to catch errors from iframe
+        iframe.contentWindow?.addEventListener('error', (event) => {
+          console.error('Preview error:', event.error);
+        });
       }
     }
   }, [previewContent]);
