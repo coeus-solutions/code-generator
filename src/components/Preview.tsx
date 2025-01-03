@@ -64,9 +64,6 @@ export function Preview({
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-router-dom@6/dist/umd/react-router-dom.development.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <title>Code Generator</title>
     <style>
       body {
         margin: 0;
@@ -76,6 +73,31 @@ export function Preview({
       #root {
         height: 100%;
       }
+      label {
+        display: block;
+        margin-top: 10px;
+      }
+      input, textarea {
+        display: block;
+        width: 100%;
+        margin: 10px 0;
+        padding: 8px;
+      }
+      button {
+        background: #4CAF50;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        cursor: pointer;
+      }
+      form {
+        margin: 20px;
+        padding: 20px;
+      }
+      h1 {
+        color: #333;
+        margin-bottom: 20px;
+      }
     </style>
   </head>
   <body>
@@ -84,30 +106,25 @@ export function Preview({
       // Initialize global objects
       window.components = {};
       window.React = React;
-      window.ReactRouterDOM = ReactRouterDOM;
 
       // Create a simple createElement wrapper
       const e = React.createElement;
       
-      // Setup React Router components
-      const {
-        BrowserRouter,
-        Routes,
-        Route,
-        Link
-      } = ReactRouterDOM;
+      // Make React hooks globally available
+      const { useState } = React;
 
       // Error handler
       window.onerror = function(msg, url, line, col, error) {
-        console.error('Error:', msg, 'Line:', line);
+        console.error('Error:', msg, 'Line:', line, 'Error:', error);
         document.getElementById('root').innerHTML = '<div style="color: red; padding: 1rem;">Error: ' + msg + '</div>';
         return false;
       };
 
       // Component registration helper
       window.registerComponent = function(name, component) {
-        console.log('Registering component:', name);
+        console.log('Registering component:', name, typeof component);
         window.components[name] = component;
+        console.log('Registered component value:', window.components[name]);
         return component;
       };
     </script>
@@ -117,6 +134,18 @@ export function Preview({
       // Convert TypeScript/TSX to plain JavaScript
       const scripts = files
         .filter(f => f.filename.endsWith('.tsx') || f.filename.endsWith('.ts'))
+        .sort((a, b) => {
+          // Process files in specific order: types -> components -> App -> main
+          const order = {
+            'types': 1,
+            'components': 2,
+            'src/App.tsx': 3,
+            'main.tsx': 4
+          };
+          const aOrder = Object.entries(order).find(([key]) => a.filename.includes(key))?.[1] || 99;
+          const bOrder = Object.entries(order).find(([key]) => b.filename.includes(key))?.[1] || 99;
+          return aOrder - bOrder;
+        })
         .map((file, index) => {
           console.log('Processing file:', file.filename);
           
@@ -129,17 +158,31 @@ export function Preview({
             // Remove type declarations
             .replace(/type\s+\w+\s*=\s*[^;]+;/g, '')
             // Convert imports
-            .replace(/import\s+{\s*([^}]+)}\s+from\s+['"]react-router-dom['"]/g, 'const { $1 } = ReactRouterDOM')
-            .replace(/import\s+{\s*([^}]+)}\s+from\s+['"]react['"]/g, 'const { $1 } = React')
-            .replace(/import\s+React\s+from\s+['"]react['"]/g, '// React is global')
-            .replace(/import\s+(\w+)\s+from\s+['"]\.\/?([^'"]+)['"]/g, 'const $1 = window.components["$2"]')
+            .replace(/import\s+{\s*([^}]+)}\s+from\s+['"]react['"]/g, '')
+            .replace(/import\s+React\s+from\s+['"]react['"]/g, '')
+            .replace(/import\s+(\w+)\s+from\s+['"]\.\/?components\/([^'"]+)['"]/g, 'const $1 = window.components["$2"]')
+            .replace(/import\s+(\w+)\s+from\s+['"]\.\/components\/([^'"]+)['"]/g, 'const $1 = window.components["$2"]')
+            .replace(/import\s+(\w+)\s+from\s+['"]\.\/([^'"]+)['"]/g, 'const $1 = window.components["$2"]')
+            .replace(/import\s+['"]\.\/index\.css['"]/g, '')
             // Convert exports
-            .replace(/export\s+default\s+function\s+(\w+)/g, 'window.registerComponent("$1", function $1')
-            .replace(/export\s+default\s+class\s+(\w+)/g, 'window.registerComponent("$1", class $1')
-            .replace(/export\s+default\s+const\s+(\w+)\s*=/g, 'window.registerComponent("$1",')
-            .replace(/export\s+const\s+(\w+)\s*=/g, 'window.registerComponent("$1",')
-            .replace(/export\s+function\s+(\w+)/g, 'window.registerComponent("$1", function $1')
-            .replace(/export\s+default\s+(\w+)/g, 'window.registerComponent("$1", $1)')
+            .replace(/export\s+default\s+function\s+(\w+)/g, (match, name) => {
+              return `const ${name} = function ${name}`;
+            })
+            .replace(/export\s+default\s+class\s+(\w+)/g, (match, name) => {
+              return `const ${name} = class ${name}`;
+            })
+            .replace(/export\s+default\s+const\s+(\w+)\s*=/g, (match, name) => {
+              return `const ${name} =`;
+            })
+            .replace(/export\s+const\s+(\w+)\s*=/g, (match, name) => {
+              return `const ${name} =`;
+            })
+            .replace(/export\s+function\s+(\w+)/g, (match, name) => {
+              return `const ${name} = function ${name}`;
+            })
+            .replace(/export\s+default\s+(\w+)/g, (match, name) => {
+              return `window.registerComponent("${name}", ${name})`;
+            })
             // Transform JSX-like syntax to React.createElement calls
             .replace(/</g, 'e(')
             .replace(/>/g, ')')
@@ -150,7 +193,29 @@ export function Preview({
             // Handle string props
             .replace(/:"([^"]+)"/g, ':"$1"')
             // Handle expression props
-            .replace(/:\{([^}]+)\}/g, ':$1');
+            .replace(/:\{([^}]+)\}/g, ':$1')
+            // Add className handling
+            .replace(/className:["']([^"']+)["']/g, (match, classes) => {
+              return `className:"${classes}"`;
+            });
+
+          // Add component registration for App.tsx
+          if (file.filename === 'src/App.tsx') {
+            content = `
+              try {
+                ${content}
+                // Ensure App component is registered
+                if (typeof App !== 'undefined') {
+                  window.registerComponent('App', App);
+                  console.log('Successfully registered App component');
+                } else {
+                  console.error('App component was not defined');
+                }
+              } catch (error) {
+                console.error('Error in App.tsx:', error);
+              }
+            `;
+          }
 
           const fileName = file.filename.replace(/\.[^/.]+$/, "").split('/').pop();
           
@@ -164,6 +229,7 @@ export function Preview({
                 })();
               } catch (error) {
                 console.error('Error in ${fileName}:', error);
+                console.error('Content that caused error:', error.message);
               }
             </script>
           `;
@@ -174,24 +240,22 @@ export function Preview({
       const initScript = `
         <script>
           try {
-            // Wait for all components to be registered
-            setTimeout(() => {
-              console.log('Initializing app with components:', Object.keys(window.components));
-              
-              // Find the App component
-              const App = window.components['App'];
-              console.log('Found App component:', App);
+            // Initialize the app
+            const App = window.components['App'];
+            console.log('Found App component:', App);
+            
+            if (!App) {
+              throw new Error('App component not found. Available components: ' + Object.keys(window.components).join(', '));
+            }
 
-              if (typeof App !== 'function') {
-                throw new Error('App component not found or not a valid React component');
-              }
-
-              // Initialize the app
-              const container = document.getElementById('root');
-              const root = ReactDOM.createRoot(container);
-              root.render(e(BrowserRouter, null, e(App)));
-              console.log('App rendered successfully');
-            }, 100);
+            const container = document.getElementById('root');
+            console.log('Found root element:', container);
+            
+            const root = ReactDOM.createRoot(container);
+            console.log('Created React root');
+            
+            root.render(e(App));
+            console.log('App rendered successfully');
           } catch (error) {
             console.error('Error initializing app:', error);
             document.getElementById('root').innerHTML = 

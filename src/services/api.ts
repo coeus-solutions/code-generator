@@ -1,7 +1,9 @@
 // Types for API responses
-interface CodeChunkResponse {
-  code: string;
-  file: string;
+interface FinalResponse {
+  final: {
+    description: string;
+    code: string;
+  }
 }
 
 interface GenerateCodeRequest {
@@ -30,6 +32,7 @@ export async function generateCodeFromPrompt(
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream',
     },
+    mode: 'cors',
     body: JSON.stringify({ description: prompt }),
   });
 
@@ -46,8 +49,6 @@ export async function generateCodeFromPrompt(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-
-  let files: Map<string, string> = new Map();
   let buffer = '';
 
   try {
@@ -60,43 +61,35 @@ export async function generateCodeFromPrompt(
       buffer = lines.pop() || ''; // Keep the last incomplete line in the buffer
 
       for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+        if (line.trim() === ':ping') continue;
+        if (!line.startsWith('data:')) continue;
 
         try {
-          const jsonStr = trimmedLine.slice(5).trim(); // Remove 'data:' prefix and whitespace
-          if (!jsonStr) continue; // Skip empty data lines
+          const jsonStr = line.slice(5).trim(); // Remove 'data:' prefix
+          if (!jsonStr) continue;
+
+          const data: FinalResponse = JSON.parse(jsonStr);
           
-          const chunk: CodeChunkResponse = JSON.parse(jsonStr);
-          
-          // Extract filename from the first line comment if it exists
-          let filename = chunk.file;
-          const firstLine = chunk.code.split('\n')[0];
-          if (firstLine && firstLine.startsWith('//')) {
-            filename = firstLine.slice(2).trim();
-          } else if (chunk.file === 'typescript') {
-            // Skip if we can't determine the filename
+          if (!data.final?.code) {
             continue;
           }
 
-          // Update or create file content
-          const currentContent = files.get(filename) || '';
-          // Remove the filename comment from the content
-          const content = chunk.code.split('\n').slice(1).join('\n');
-          files.set(filename, currentContent + content);
+          // Parse the code string which contains a JSON object with filenames and contents
+          const filesObj = JSON.parse(data.final.code);
+          
+          // Convert the object into our GeneratedFile[] format
+          const files: GeneratedFile[] = Object.entries(filesObj).map(([filename, content]) => ({
+            filename,
+            content: typeof content === 'string' ? content : JSON.stringify(content, null, 2)
+          }));
 
-          // Convert Map to array of files for the callback
-          const currentFiles: GeneratedFile[] = Array.from(files.entries()).map(
-            ([filename, content]) => ({
-              filename: filename.replace(/^\//, ''), // Remove leading slash if present
-              content
-            })
-          );
+          // Call the progress callback with the files
+          onProgress?.(files);
 
-          onProgress?.(currentFiles);
+          return { files };
         } catch (error) {
-          console.error('Failed to parse chunk:', error, 'Line:', trimmedLine);
-          throw new Error('Failed to parse server response');
+          console.error('Failed to parse message:', error);
+          continue;
         }
       }
     }
@@ -104,13 +97,5 @@ export async function generateCodeFromPrompt(
     reader.releaseLock();
   }
 
-  // Convert final Map to array of files for the response
-  const finalFiles: GeneratedFile[] = Array.from(files.entries()).map(
-    ([filename, content]) => ({
-      filename: filename.replace(/^\//, ''), // Remove leading slash if present
-      content
-    })
-  );
-
-  return { files: finalFiles };
+  throw new Error('Stream ended without receiving valid code');
 }
