@@ -232,71 +232,33 @@ export function Preview({
         color: #1a1a1a;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       }
-      form {
-        max-width: 400px;
-        margin: 2rem auto;
-        padding: 2rem;
-        border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        background: white;
-      }
-      h1 {
-        text-align: center;
-        color: #2563eb;
-        margin-bottom: 2rem;
-        font-size: 2rem;
-        font-weight: bold;
-      }
-      .form-group {
-        margin-bottom: 1.5rem;
-      }
-      label {
-        display: block;
-        margin-bottom: 0.5rem;
-        color: #4b5563;
-        font-weight: 500;
-      }
-      input {
-        width: 100%;
-        padding: 0.75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 1rem;
-        transition: border-color 0.15s ease;
-      }
-      input:focus {
-        outline: none;
-        border-color: #2563eb;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-      }
-      button {
-        width: 100%;
-        padding: 0.75rem;
-        background-color: #2563eb;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        font-size: 1rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: background-color 0.15s ease;
-      }
-      button:hover {
-        background-color: #1d4ed8;
-      }
       ${cssFiles.map(file => file.content).join('\n')}
     </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="text/babel">
-      // Initialize React components and hooks
       const { useState, useEffect, useRef } = React;
-      
-      // Simple routing hooks
-      const useLocation = () => {
+
+      // Simple router implementation
+      const RouterContext = React.createContext(null);
+
+      function useRouter() {
+        return React.useContext(RouterContext);
+      }
+
+      function Route({ path, element }) {
+        const { path: currentPath } = useRouter();
+        return currentPath === path ? element : null;
+      }
+
+      function Routes({ children }) {
+        return <>{children}</>;
+      }
+
+      function Router({ children }) {
         const [path, setPath] = useState(window.location.hash.slice(1) || '/');
-        
+
         useEffect(() => {
           const handleHashChange = () => {
             setPath(window.location.hash.slice(1) || '/');
@@ -304,28 +266,33 @@ export function Preview({
           window.addEventListener('hashchange', handleHashChange);
           return () => window.removeEventListener('hashchange', handleHashChange);
         }, []);
-        
-        return { pathname: path };
-      };
-      
-      const useNavigate = () => {
-        return (to) => {
+
+        const navigate = React.useCallback((to) => {
           window.location.hash = to;
-        };
-      };
-      
-      const Link = ({ to, children, ...props }) => (
-        <a
-          href={'#' + to}
-          onClick={(e) => {
-            e.preventDefault();
-            window.location.hash = to;
-          }}
-          {...props}
-        >
-          {children}
-        </a>
-      );
+        }, []);
+
+        return (
+          <RouterContext.Provider value={{ path, navigate }}>
+            {children}
+          </RouterContext.Provider>
+        );
+      }
+
+      function Link({ to, children, ...props }) {
+        const { navigate } = useRouter();
+        return (
+          <a
+            href={'#' + to}
+            onClick={(e) => {
+              e.preventDefault();
+              navigate(to);
+            }}
+            {...props}
+          >
+            {children}
+          </a>
+        );
+      }
 
       // Error boundary component
       class ErrorBoundary extends React.Component {
@@ -357,55 +324,113 @@ export function Preview({
         }
       }
 
-      // Define interfaces and types
-      const SignupForm = {
-        username: '',
-        email: '',
-        password: ''
-      };
-
-      // Define all components first
+      // Define all components
       ${componentFiles.map(file => {
         const pathParts = file.filename.split('/');
         const componentName = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, '');
+        
+        // Extract the component's content
+        const content = file.content;
+        
+        // Extract state declarations
+        const stateMatch = content.match(/const\s*\[\s*(\w+)[^\]]*\]\s*=\s*useState/g);
+        let stateDeclarations = '';
+        if (stateMatch) {
+          stateMatch.forEach(match => {
+            const stateName = match.match(/const\s*\[\s*(\w+)/)[1];
+            stateDeclarations += `const [${stateName}, set${stateName[0].toUpperCase()}${stateName.slice(1)}] = useState('');\n`;
+          });
+        }
+
+        // Extract event handlers
+        const handlersMatch = content.match(/const\s+handle\w+\s*=\s*(?:\([^)]*\)|[^=]*)\s*=>\s*{[\s\S]*?}/g);
+        let eventHandlers = '';
+        if (handlersMatch) {
+          eventHandlers = handlersMatch.map(handler => {
+            // Remove TypeScript types from parameters
+            return handler.replace(/:\s*\w+(\[\])?(\s*\|\s*\w+(\[\])?)*\s*[,}]/g, ',')
+                         .replace(/:\s*\w+(\[\])?(\s*\|\s*\w+(\[\])?)*\s*\)/g, ')')
+                         .replace(/:\s*\w+(\[\])?(\s*\|\s*\w+(\[\])?)*\s*=>/g, '=>');
+          }).join('\n\n');
+        }
+
+        // Extract JSX content
+        const jsxMatch = content.match(/return\s*\(([\s\S]*?)\);?\s*\}/);
+        let jsx = jsxMatch ? jsxMatch[1] : '<div>Error: No JSX found</div>';
+        
+        // Clean up event handlers in JSX
+        jsx = jsx.replace(/(\s*=\s*{)([^}]+)(})/g, (match, start, content, end) => {
+          // Remove semicolons and fix arrow functions
+          let cleaned = content.trim();
+          
+          // If it's an arrow function with a semicolon at the end
+          if (cleaned.includes('=>') && cleaned.endsWith(';')) {
+            cleaned = cleaned.slice(0, -1); // Remove the semicolon
+          }
+          
+          // If it's an arrow function with a single statement (no curly braces)
+          if (cleaned.includes('=>') && !cleaned.includes('{')) {
+            cleaned = cleaned.replace(/\((e|event):[^)]+\)/, '(e)');
+          }
+          
+          return `${start}${cleaned}${end}`;
+        });
+
         return `
         // ${file.filename}
         function ${componentName}(props) {
-          ${file.content
-            .replace(/interface\s+\w+\s*{[^}]*}/g, '')
-            .replace(/type\s+\w+\s*=\s*[^;]+;/g, '')
-            .replace(/export\s+default\s+/g, '')
-            .replace(/export\s+/g, '')
-            .replace(/import\s+.*?from\s+['"].*?['"];?\n?/g, '')
-            .replace(/import\s+{[^}]*}\s+from\s+['"].*?['"];?\n?/g, '')
-            .replace(/import\s+/g, '// import ')
-            .replace(/require\([^)]+\)/g, '{}')
-            .replace(/module\.exports\s*=\s*/g, '')
-            .replace(/exports\./g, '// exports.')
-            .replace(/return\s*\(/g, 'return (')}
+          const router = useRouter();
+          ${stateDeclarations}
+          ${eventHandlers}
+          return (${jsx});
         }
       `}).join('\n\n')}
 
-      // App component code
+      // App component
       function App() {
-        ${appFile.content
-          .replace(/interface\s+\w+\s*{[^}]*}/g, '')
-          .replace(/type\s+\w+\s*=\s*[^;]+;/g, '')
-          .replace(/export\s+default\s+/g, '')
-          .replace(/export\s+/g, '')
-          .replace(/import\s+.*?from\s+['"].*?['"];?\n?/g, '')
-          .replace(/import\s+{[^}]*}\s+from\s+['"].*?['"];?\n?/g, '')
-          .replace(/import\s+/g, '// import ')
-          .replace(/require\([^)]+\)/g, '{}')
-          .replace(/module\.exports\s*=\s*/g, '')
-          .replace(/exports\./g, '// exports.')
-          .replace(/BrowserRouter/g, 'div')
-          .replace(/Routes/g, 'div')
-          .replace(/Route/g, 'div')
-          .replace(/return\s*\(/g, 'return (')}
+        const router = useRouter();
+        ${(() => {
+          const content = appFile.content;
+          
+          // Extract event handlers
+          const handlersMatch = content.match(/const\s+handle\w+\s*=\s*(?:\([^)]*\)|[^=]*)\s*=>\s*{[\s\S]*?}/g);
+          let eventHandlers = '';
+          if (handlersMatch) {
+            eventHandlers = handlersMatch.map(handler => {
+              // Remove TypeScript types from parameters
+              return handler.replace(/:\s*\w+(\[\])?(\s*\|\s*\w+(\[\])?)*\s*[,}]/g, ',')
+                           .replace(/:\s*\w+(\[\])?(\s*\|\s*\w+(\[\])?)*\s*\)/g, ')')
+                           .replace(/:\s*\w+(\[\])?(\s*\|\s*\w+(\[\])?)*\s*=>/g, '=>');
+            }).join('\n\n');
+          }
+
+          // Extract JSX content
+          const jsxMatch = content.match(/return\s*\(([\s\S]*?)\);?\s*\}/);
+          let jsx = jsxMatch ? jsxMatch[1] : '<div>Error: No JSX found</div>';
+          
+          // Clean up event handlers in JSX
+          jsx = jsx.replace(/(\s*=\s*{)([^}]+)(})/g, (match, start, content, end) => {
+            // Remove semicolons and fix arrow functions
+            let cleaned = content.trim();
+            
+            // If it's an arrow function with a semicolon at the end
+            if (cleaned.includes('=>') && cleaned.endsWith(';')) {
+              cleaned = cleaned.slice(0, -1); // Remove the semicolon
+            }
+            
+            // If it's an arrow function with a single statement (no curly braces)
+            if (cleaned.includes('=>') && !cleaned.includes('{')) {
+              cleaned = cleaned.replace(/\((e|event):[^)]+\)/, '(e)');
+            }
+            
+            return `${start}${cleaned}${end}`;
+          });
+
+          return `${eventHandlers}\nreturn (${jsx});`;
+        })()}
       }
 
-      // Wait for DOM to be ready
+      // Initialize the app
       window.addEventListener('load', () => {
         try {
           console.log('Initializing React app');
@@ -415,7 +440,9 @@ export function Preview({
           const root = ReactDOM.createRoot(container);
           root.render(
             <ErrorBoundary>
-              <App />
+              <Router>
+                <App />
+              </Router>
             </ErrorBoundary>
           );
           console.log('App rendered successfully');
