@@ -232,13 +232,33 @@ export function Preview({
         color: #1a1a1a;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       }
-      ${cssFiles.map(file => file.content).join('\n')}
     </style>
+    ${cssFiles.map((file, index) => `
+    <style data-file="${file.filename}">
+      /* CSS from ${file.filename} */
+      ${file.content}
+    </style>
+    `).join('\n')}
+    <script>
+      // Create a CSS modules-like object for each CSS file
+      window.styles = {};
+      document.querySelectorAll('style[data-file]').forEach(style => {
+        const filename = style.getAttribute('data-file');
+        // Create a simple object that returns the class name as is
+        window.styles[filename] = new Proxy({}, {
+          get: function(target, prop) {
+            return prop; // Return the class name as is
+          }
+        });
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="text/babel">
       const { useState, useEffect, useRef } = React;
+      // Make styles available to components
+      const styles = window.styles;
 
       // Simple router implementation
       const RouterContext = React.createContext(null);
@@ -329,6 +349,10 @@ export function Preview({
         const pathParts = file.filename.split('/');
         const componentName = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, '');
         
+        // Find corresponding CSS module
+        const cssModuleName = file.filename.replace(/\.(tsx|jsx)$/, '.module.css');
+        const hasStyles = cssFiles.some(f => f.filename === cssModuleName);
+        
         // Extract the component's content
         const content = file.content;
         
@@ -380,6 +404,7 @@ export function Preview({
         // ${file.filename}
         function ${componentName}(props) {
           const router = useRouter();
+          ${hasStyles ? `const moduleStyles = styles['${cssModuleName}'];` : ''}
           ${stateDeclarations}
           ${eventHandlers}
           return (${jsx});

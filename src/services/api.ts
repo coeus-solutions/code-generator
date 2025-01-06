@@ -1,3 +1,5 @@
+import { env } from '../config/env';
+
 // Types for API responses
 interface CodeChunkResponse {
   code: string;
@@ -8,7 +10,7 @@ interface GenerateCodeRequest {
   description: string;
 }
 
-interface GeneratedFile {
+export interface GeneratedFile {
   filename: string;
   content: string;
 }
@@ -18,13 +20,11 @@ interface GenerationResponse {
   preview_url?: string;
 }
 
-const API_BASE_URL = 'http://localhost:8000';
-
 export async function generateCodeFromPrompt(
-  prompt: string, 
+  prompt: string,
   onProgress?: (files: GeneratedFile[]) => void
 ): Promise<GenerationResponse> {
-  const response = await fetch(`${API_BASE_URL}/generate-code`, {
+  const response = await fetch(`${env.apiUrl}/generate-code`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
