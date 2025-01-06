@@ -198,9 +198,16 @@ export function Preview({
         return;
       }
 
+      // Find all component files
+      const componentFiles = files.filter(f => 
+        (f.filename.endsWith('.tsx') || f.filename.endsWith('.jsx')) &&
+        f.filename !== appFile.filename
+      );
+
       setPreviewLogs(prev => [
         ...prev,
         "✅ Found App component",
+        `📦 Found ${componentFiles.length} additional components`,
         `📦 Found ${cssFiles.length} CSS files`,
         "🔨 Preparing preview environment..."
       ]);
@@ -218,7 +225,65 @@ export function Preview({
     <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.17/babel.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-      body { margin: 0; padding: 1rem; }
+      body { 
+        margin: 0; 
+        padding: 1rem; 
+        background-color: white;
+        color: #1a1a1a;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+      form {
+        max-width: 400px;
+        margin: 2rem auto;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        background: white;
+      }
+      h1 {
+        text-align: center;
+        color: #2563eb;
+        margin-bottom: 2rem;
+        font-size: 2rem;
+        font-weight: bold;
+      }
+      .form-group {
+        margin-bottom: 1.5rem;
+      }
+      label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #4b5563;
+        font-weight: 500;
+      }
+      input {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 1rem;
+        transition: border-color 0.15s ease;
+      }
+      input:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      }
+      button {
+        width: 100%;
+        padding: 0.75rem;
+        background-color: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 1rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+      }
+      button:hover {
+        background-color: #1d4ed8;
+      }
       ${cssFiles.map(file => file.content).join('\n')}
     </style>
   </head>
@@ -292,19 +357,53 @@ export function Preview({
         }
       }
 
+      // Define interfaces and types
+      const SignupForm = {
+        username: '',
+        email: '',
+        password: ''
+      };
+
+      // Define all components first
+      ${componentFiles.map(file => {
+        const pathParts = file.filename.split('/');
+        const componentName = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, '');
+        return `
+        // ${file.filename}
+        function ${componentName}(props) {
+          ${file.content
+            .replace(/interface\s+\w+\s*{[^}]*}/g, '')
+            .replace(/type\s+\w+\s*=\s*[^;]+;/g, '')
+            .replace(/export\s+default\s+/g, '')
+            .replace(/export\s+/g, '')
+            .replace(/import\s+.*?from\s+['"].*?['"];?\n?/g, '')
+            .replace(/import\s+{[^}]*}\s+from\s+['"].*?['"];?\n?/g, '')
+            .replace(/import\s+/g, '// import ')
+            .replace(/require\([^)]+\)/g, '{}')
+            .replace(/module\.exports\s*=\s*/g, '')
+            .replace(/exports\./g, '// exports.')
+            .replace(/return\s*\(/g, 'return (')}
+        }
+      `}).join('\n\n')}
+
       // App component code
-      ${appFile.content
-        .replace(/export\s+default\s+/g, '')
-        .replace(/export\s+/g, '')
-        .replace(/import\s+.*?from\s+['"].*?['"];?\n?/g, '')
-        .replace(/import\s+{[^}]*}\s+from\s+['"].*?['"];?\n?/g, '')
-        .replace(/import\s+/g, '// import ')
-        .replace(/require\([^)]+\)/g, '{}')
-        .replace(/module\.exports\s*=\s*/g, 'const App = ')
-        .replace(/exports\./g, '// exports.')
-        .replace(/BrowserRouter/g, 'div')
-        .replace(/Routes/g, 'div')
-        .replace(/Route/g, 'div')}
+      function App() {
+        ${appFile.content
+          .replace(/interface\s+\w+\s*{[^}]*}/g, '')
+          .replace(/type\s+\w+\s*=\s*[^;]+;/g, '')
+          .replace(/export\s+default\s+/g, '')
+          .replace(/export\s+/g, '')
+          .replace(/import\s+.*?from\s+['"].*?['"];?\n?/g, '')
+          .replace(/import\s+{[^}]*}\s+from\s+['"].*?['"];?\n?/g, '')
+          .replace(/import\s+/g, '// import ')
+          .replace(/require\([^)]+\)/g, '{}')
+          .replace(/module\.exports\s*=\s*/g, '')
+          .replace(/exports\./g, '// exports.')
+          .replace(/BrowserRouter/g, 'div')
+          .replace(/Routes/g, 'div')
+          .replace(/Route/g, 'div')
+          .replace(/return\s*\(/g, 'return (')}
+      }
 
       // Wait for DOM to be ready
       window.addEventListener('load', () => {
